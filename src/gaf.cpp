@@ -94,17 +94,22 @@ std::optional<GafRecord> parse_gaf_line(const std::string& line) {
     throw Error("expected at least 12 fields in GAF line: " + line);
   }
 
-  GafRecord record;
-  record.qname = std::string(fields[0]);
-  record.query_length = parse_u64(fields[1], "query_length");
-  record.query_start = parse_u64(fields[2], "query_start");
-  record.query_end = parse_u64(fields[3], "query_end");
+  // Unmapped reads use '*' placeholders in the strand and all coordinate
+  // fields (query_start/end, path, target_start/end). Detect them via the
+  // strand field before parsing any numeric fields, since parse_u64 would
+  // otherwise throw on the '*' in query_start/query_end.
   if (fields[4].size() == 1 && fields[4][0] == '*') {
     return std::nullopt;
   }
   if (fields[4].size() != 1 || (fields[4][0] != '+' && fields[4][0] != '-')) {
     throw Error("invalid GAF strand field in line: " + line);
   }
+
+  GafRecord record;
+  record.qname = std::string(fields[0]);
+  record.query_length = parse_u64(fields[1], "query_length");
+  record.query_start = parse_u64(fields[2], "query_start");
+  record.query_end = parse_u64(fields[3], "query_end");
   record.strand = fields[4][0];
   record.nodes = parse_target_walk(fields[5]);
   record.target_length = parse_u64(fields[6], "target_length");

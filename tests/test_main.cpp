@@ -142,6 +142,15 @@ int main() {
   }
 
   {
+    // Unmapped reads use '*' placeholders in the strand and all coordinate
+    // fields. They must be skipped (nullopt) rather than triggering a parse
+    // error on query_start/query_end.
+    const auto unmapped = pggaf::parse_gaf_line(
+        "read_unmapped\t100\t*\t*\t*\t*\t*\t*\t*\t0\t0\t0");
+    assert(!unmapped.has_value());
+  }
+
+  {
     const std::filesystem::path path = std::filesystem::temp_directory_path() / "pggaf_test_sidecar.pgs";
     {
       pggaf::SidecarWriter writer(path.string());
