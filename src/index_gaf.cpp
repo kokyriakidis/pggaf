@@ -11,6 +11,7 @@
 #include <fstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <htslib/bgzf.h>
 #include <htslib/tbx.h>
@@ -91,8 +92,30 @@ int run_index_gaf(const IndexGafOptions& options) {
     close(pre_sort[0]); close(pre_sort[1]);
     close(sort_out[0]); close(sort_out[1]);
     setenv("LC_ALL", "C", 1);
-    execlp("sort", "sort", "-k1,1", "-k2,2n", "-k3,3n",
-           static_cast<char*>(nullptr));
+
+    // Base sort: stable key order chrom, start, end with numeric start/end.
+    std::vector<std::string> sort_args = {"sort", "-k1,1", "-k2,2n", "-k3,3n"};
+#if defined(__linux__)
+    // GNU coreutils only: parallelize the sort and give it a large in-memory
+    // buffer. These flags are not portable to BSD/macOS sort, so they are
+    // gated to Linux where GNU sort is the default.
+    unsigned int threads = std::thread::hardware_concurrency();
+    if (threads == 0) {
+      threads = 1;
+    }
+    sort_args.push_back("--parallel=" + std::to_string(threads));
+    sort_args.push_back("-S");
+    sort_args.push_back("50%");
+#endif
+
+    std::vector<char*> sort_argv;
+    sort_argv.reserve(sort_args.size() + 1);
+    for (std::string& arg : sort_args) {
+      sort_argv.push_back(arg.data());
+    }
+    sort_argv.push_back(nullptr);
+
+    execvp("sort", sort_argv.data());
     _exit(127);
   }
 

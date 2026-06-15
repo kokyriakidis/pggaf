@@ -227,6 +227,18 @@ int run_annotate_gaf(const AnnotateGafOptions& options) {
     current_qname.clear();
   };
 
+  // Append one record to the current block. Both the raw line and the walk
+  // nodes are moved out of their sources (the line is reassigned by getline on
+  // the next iteration; record is discarded), avoiding a deep copy per record.
+  // The reference interval is computed before the move, since it reads nodes.
+  auto append_record = [&](std::string&& line_in, GafRecord& record) {
+    ref_intervals.push_back(
+        graph->walk_ref_interval(record.nodes, record.target_start, record.target_end));
+    walk_mapqs.push_back(record.mapq);
+    walks.push_back(std::move(record.nodes));
+    lines.push_back(std::move(line_in));
+  };
+
   std::string line;
   while (std::getline(input, line)) {
     ++line_number;
@@ -240,29 +252,13 @@ int run_annotate_gaf(const AnnotateGafOptions& options) {
       continue;
     }
 
+    if (!current_qname.empty() && record->qname != current_qname) {
+      flush_block();
+    }
     if (current_qname.empty()) {
       current_qname = record->qname;
-      lines.push_back(line);
-      ref_intervals.push_back(graph->walk_ref_interval(record->nodes, record->target_start, record->target_end));
-      walks.push_back(record->nodes);
-      walk_mapqs.push_back(record->mapq);
-      continue;
     }
-
-    if (record->qname != current_qname) {
-      flush_block();
-      current_qname = record->qname;
-      lines.push_back(line);
-      ref_intervals.push_back(graph->walk_ref_interval(record->nodes, record->target_start, record->target_end));
-      walks.push_back(record->nodes);
-      walk_mapqs.push_back(record->mapq);
-      continue;
-    }
-
-    lines.push_back(line);
-    ref_intervals.push_back(graph->walk_ref_interval(record->nodes, record->target_start, record->target_end));
-    walks.push_back(record->nodes);
-    walk_mapqs.push_back(record->mapq);
+    append_record(std::move(line), *record);
   }
 
   flush_block();

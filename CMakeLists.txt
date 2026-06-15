@@ -1,10 +1,26 @@
 cmake_minimum_required(VERSION 3.20)
 
+# Honor INTERPROCEDURAL_OPTIMIZATION on all targets, including vendored
+# subprojects that declare an older cmake_minimum_required. Avoids CMP0069
+# warnings and lets LTO apply uniformly where the toolchain supports it.
+set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
+
 project(pggaf VERSION 0.1.0 LANGUAGES CXX C)
+
+# Default to an optimized build. The runtime is dominated by GBWT/gbwtgraph
+# find/extend/locate and reference-path extraction, which are 3-10x slower when
+# compiled at -O0. A plain `cmake ..` should not silently produce a debug build.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING
+      "Build type (Debug, Release, RelWithDebInfo, MinSizeRel)" FORCE)
+  set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
+      Debug Release RelWithDebInfo MinSizeRel)
+endif()
 
 include(CTest)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
+include(CheckIPOSupported)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,6 +28,19 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 option(PGGAF_BUILD_TESTS "Build pggaf tests" ON)
+option(PGGAF_ENABLE_LTO "Enable interprocedural optimization (LTO) for optimized builds" ON)
+
+# Enable LTO for the whole project on optimized builds. This lets the compiler
+# inline across the pggaf core and the static graph libraries it links against.
+if(PGGAF_ENABLE_LTO AND NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+  check_ipo_supported(RESULT _pggaf_ipo_supported OUTPUT _pggaf_ipo_message)
+  if(_pggaf_ipo_supported)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+    message(STATUS "pggaf: interprocedural optimization (LTO) enabled")
+  else()
+    message(STATUS "pggaf: LTO not supported by toolchain: ${_pggaf_ipo_message}")
+  endif()
+endif()
 
 set(WITH_GOOGLETEST OFF CACHE BOOL "Disable vendored googletest in sdsl-lite" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "Disable external project tests" FORCE)

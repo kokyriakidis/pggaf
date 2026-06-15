@@ -68,7 +68,11 @@ public:
   }
 
   std::vector<SubpathResult> find_subpaths(const std::vector<OrientedNode>& walk) const override {
-    std::vector<gbwt::node_type> encoded;
+    // encoded_scratch_ and located_scratch_ are reused across calls to avoid a
+    // heap allocation per record. find_subpaths is only called from the
+    // single-threaded annotate loop, so the mutable scratch is safe.
+    std::vector<gbwt::node_type>& encoded = encoded_scratch_;
+    encoded.clear();
     encoded.reserve(walk.size());
     for (const OrientedNode& node : walk) {
       encoded.push_back(gbwt::Node::encode(node.id, node.reverse));
@@ -107,18 +111,20 @@ public:
         ++end;
       }
 
-      std::vector<gbwt::size_type> located;
-      if (fast_locate_) {
-        located = fast_locate_->locate(state, first_occurrence);
-      } else {
-        located = index_->locate(state);
-      }
+      // locate() returns a freshly-allocated vector, so there is nothing to
+      // reuse here; the allocation is owned by the GBWT API.
+      const std::vector<gbwt::size_type> located =
+          fast_locate_ ? fast_locate_->locate(state, first_occurrence)
+                       : index_->locate(state);
 
       std::vector<std::uint64_t> path_ids;
       path_ids.reserve(located.size());
       for (gbwt::size_type sequence_id : located) {
         path_ids.push_back(static_cast<std::uint64_t>(gbwt::Path::id(sequence_id)));
       }
+      // located is sorted by sequence id (gbwt locate post-sorts via
+      // removeDuplicates) and Path::id() == seq/2 preserves that order, so the
+      // path ids are already non-decreasing and unique() collapses duplicates.
       path_ids.erase(std::unique(path_ids.begin(), path_ids.end()), path_ids.end());
 
       result.push_back(SubpathResult{
@@ -403,6 +409,11 @@ private:
   gbwtgraph::sample_name_set reference_samples_;
   std::vector<std::string> ref_chroms_;
   std::unordered_map<std::uint64_t, RefNodeMapEntry> node_ref_map_;
+
+  // Reusable scratch buffer for the encoded walk in find_subpaths, kept to
+  // avoid a per-record heap allocation. Safe because find_subpaths runs
+  // single-threaded from the annotate loop.
+  mutable std::vector<gbwt::node_type> encoded_scratch_;
 };
 
 }  // namespace
